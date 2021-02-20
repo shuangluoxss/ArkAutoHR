@@ -1,7 +1,7 @@
 # ArkAutoHR
-明日方舟自动公开招募，使用adb控制安卓模拟器，实现公开招募的全自动 
-脚本使用python3编写 
-脚本依赖[cnocr](https://github.com/breezedeus/cnocr)与cv2等python库，请事先安装好 
+明日方舟自动公开招募，使用adb控制安卓模拟器，实现公开招募的全自动  
+脚本使用python3编写  
+脚本依赖[cnocr](https://github.com/breezedeus/cnocr)与cv2等python库，请事先安装好  
 脚本需要将`adb.exe`所在文件夹加入环境变量
 
 ## 使用说明
