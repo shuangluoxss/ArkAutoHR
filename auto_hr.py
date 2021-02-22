@@ -1,15 +1,64 @@
 import os
 import time
-from cnocr import CnOcr
+from cnocr import CnOcr, NUMBERS
 from cv2 import imread
 import numpy as np
 from itertools import chain, combinations
 import re
 import json
+import argparse
+
+parser = argparse.ArgumentParser(description='明日方舟自动公招', add_help= True)
+parser.add_argument('-d', '--device', metavar='Device_Name', help='设置ADB设备名称. eg. 127.0.0.1:7555（网易MuMu模拟器）')
+parser.add_argument('-n', metavar='Num', type=int, help='设置本次需要公招的次数.')
+parser.add_argument('-a', '--all', action='store_true', help='公招直至龙门币、招聘许可或加急许可耗尽. 该选项将会覆盖[-n Num].')
+parser.add_argument('-r', '--reset', action='store_true', help='清除历史记录.')
+parser.add_argument('-f', '--force', action='store_true', help='无视检查，强制运行至指定次数或出错. (此选项可能有助于解决识别出错导致提前终止的问题)')
+args = parser.parse_args()
+
+if (args.reset):
+    try:
+        os.remove('history.log')
+        print('history.log已清除')
+    except:
+        print('未找到history.log，跳过')
+    try:
+        for root, dirs, files in os.walk('screenshots', topdown=False):
+            for name in files:
+                os.remove(os.path.join(root, name))
+            for name in dirs:
+                os.rmdir(os.path.join(root, name))
+        os.rmdir('screenshots')
+        print('screenshots已清除')
+    except:
+        print('未找到screenshots，跳过')
+    exit()
+
 # 模拟器device_name，使用adb devices查看
-device_name = '127.0.0.1:62026'
+device_name = '127.0.0.1:7555' #网易MuMu模拟器
+#device_name = '127.0.0.1:62026'
+#device_name = '127.0.0.1:5555' #雷电模拟器
+if (args.device):
+    device_name = args.device
+# 连接adb
+adb_devices = os.popen('adb devices').read()
+if device_name not in adb_devices:
+    print('Trying to connent to %s' % device_name)
+    os.popen('adb connect %s' % device_name).read()
+
 # 公招次数
-num = 2
+default_num = 114514
+if (args.all):
+    num = default_num
+elif (args.n):
+    num = args.n
+else:
+    num = input('请输入要公招的次数(直接回车则运行至材料耗尽)：')
+    if (num):
+        num = int(num)
+    else:
+        num = default_num
+
 '''
 模拟器分辨率默认为960*540，若为其他分辨率，调整factor
 如分辨率为1280*720，则factor=1280/960
@@ -46,7 +95,13 @@ for name, info in op_dict.items():
             tag_dict[tag] = {name}
     reg_dict[info['报到']] = name
 
-    
+def force_or_exit(errmsg = '遇到错误，退出...'):
+    if (args.force):
+        print('--force选项启用，尝试继续运行')
+        return None
+    print(errmsg)
+    exit()
+
 def str_similiar(s1, s2):
     """
     返回字符串s1与字符串s2的相似程度
@@ -90,7 +145,7 @@ def img_to_tag(tag_img):
             raise ValueError('无法识别tag')
 
 def get_score(tag_list):
-    """    
+    """
     计算某tag组合的分值：首先将满足各tag的干员取交集得到最终可能获得的干员列表，可能的最低星级*100减去tag数量作为分数
     由于拉满9小时最低三星，因此最低星级锁定为3星
     """
@@ -107,9 +162,9 @@ def get_score(tag_list):
         return score
     else:
         return 0
-    
+
 def choose_tags(tag_list):
-    """    
+    """
     对于给定的5个tag，遍历其中不超过3个tag的所有组合，按照分值从大到小排序，返回分值最高的tag组合
     """
     all_possible_comb = []
@@ -134,7 +189,7 @@ def recognize_tag(screenshot):
         tags_choosen = choose_tags(tag_list)
         tag_to_index = dict(zip(tag_list, range(5)))
         return tag_list, tags_choosen, [tag_to_index[tag] for tag in tags_choosen]
-    
+
 def mat_tostring(mat):
     return ''.join(list(chain.from_iterable(mat)))
 
@@ -149,13 +204,30 @@ def recognize_name(screenshot):
         return reg_dict[voice], score
     else:
         return None
-        
+
 def load_image(filename):
     screenshot = imread('screenshots/' + filename)
     if screenshot is not None:
         return screenshot
     else:
         raise NameError
+
+def check_ticket(screenshot):
+    ocr.set_cand_alphabet(cand_alphabet=NUMBERS)
+    item = mat_tostring(ocr.ocr_for_single_line(254 - screenshot[int(496*factor):int(513*factor), int(385*factor):int(440*factor)]))
+    ocr.set_cand_alphabet(cand_alphabet=None)
+    item = re.sub(r'[^0-9]', '', item)[:-1]
+    print('剩余公招许可：%s' % item)
+    if (item == '0'):
+        force_or_exit('招聘许可不足，退出...')
+    return None
+
+def read_prompt(screenshot):
+    prompt = mat_tostring(ocr.ocr(255 - screenshot[int(50*factor):int(120*factor), int(775*factor):]))
+    prompt, score = search_in_list(['龙门币不足', '招聘许可不足', '加急许可不足'], prompt)
+    if (prompt is not None):
+        force_or_exit('%s，退出...' % prompt)
+    return None
 
 def gongzhao(num, start=0):
     pos_dict = {
@@ -166,7 +238,7 @@ def gongzhao(num, start=0):
         '加急': (353, 287),
         '确认': (720, 381),
         '聘用': (240, 285),
-        'skip': (917, 30)   
+        'skip': (917, 30)
     }
     def click(pos, sleep=0.5):
         command = 'adb -s %s shell input tap %d %d' % (device_name, int(pos[0] * factor), int(pos[1] * factor))
@@ -182,19 +254,27 @@ def gongzhao(num, start=0):
         os.popen('adb -s %s pull /sdcard/01.png screenshots/%s' % (device_name, filename)).read()
 
     for k in range(start, start + num):
-        print('第%d抽' % k)
+        print('\n本次第%d抽，累计第%d抽' % (k-start+1, k))
         click(pos_dict['新建'], 1)
+        screenshot('tag_%d.png' % k)
+        #检测公招券道具数量
+        check_ticket(load_image('tag_%d.png' % k))
 #         click_incre()
         for i in range(8):
             click(pos_dict['增加时长'], 0)
-        screenshot('tag_%d.png' % k)
         tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
         print('\t可选tag为：\t' + ', '.join(tag_list))
+        if ('高级资深干员' in tag_list):
+            force_or_exit('出现高级资深干员，请人工选择，退出...')
         print('\t选择tag为：\t' + ', '.join(tags_choosen))
         for i in click_pos:
             click(pos_dict['tag'][i], 0.1)
         click(pos_dict['招募'], 2)
+        screenshot('tmp.png')
+        read_prompt(load_image('tmp.png'))
         click(pos_dict['加急'], 1.5)
+        screenshot('tmp.png')
+        read_prompt(load_image('tmp.png'))
         click(pos_dict['确认'], 2)
         click(pos_dict['聘用'], 1)
         click(pos_dict['skip'], 3)
@@ -208,6 +288,7 @@ def gongzhao(num, start=0):
             file.write('%d; %s; %s; %s; %d\n' % (k, str(tag_list), str(tags_choosen), name, op_dict[name]['星级']))
         click(pos_dict['skip'])
         click(pos_dict['skip'])
+    print('\n已完成%d次公招，退出...' % num)
 
 if __name__ == '__main__':
     try:
