@@ -1,6 +1,6 @@
 import os
 import time
-from cnocr import CnOcr, NUMBERS
+from cnocr import CnOcr
 from cv2 import imread
 import numpy as np
 from itertools import chain, combinations
@@ -9,7 +9,7 @@ import json
 import argparse
 
 parser = argparse.ArgumentParser(description='明日方舟自动公招', add_help= True)
-parser.add_argument('-d', '--device', metavar='Device_Name', help='设置ADB设备名称. eg. 127.0.0.1:7555（网易MuMu模拟器）')
+parser.add_argument('-d', '--device', metavar='Device_Name', help='设置ADB设备名称. eg. 127.0.0.1:5555（蓝叠模拟器）')
 parser.add_argument('-n', metavar='Num', type=int, help='设置本次需要公招的次数.')
 parser.add_argument('-a', '--all', action='store_true', help='公招直至龙门币、招聘许可或加急许可耗尽. 该选项将会覆盖[-n Num].')
 parser.add_argument('-r', '--reset', action='store_true', help='清除历史记录.')
@@ -35,9 +35,9 @@ if (args.reset):
     exit()
 
 # 模拟器device_name，使用adb devices查看
-device_name = '127.0.0.1:7555' #网易MuMu模拟器
+# device_name = '127.0.0.1:7555' #网易MuMu模拟器
 #device_name = '127.0.0.1:62026'
-#device_name = '127.0.0.1:5555' #雷电模拟器
+device_name = '127.0.0.1:5555' #雷电模拟器，蓝叠模拟器
 if (args.device):
     device_name = args.device
 # 连接adb
@@ -47,7 +47,7 @@ if device_name not in adb_devices:
     os.popen('adb connect %s' % device_name).read()
 
 # 公招次数
-default_num = 114514
+default_num = 9999
 if (args.all):
     num = default_num
 elif (args.n):
@@ -128,17 +128,18 @@ def search_in_list(s_list, x, min_score=1000):
 #         print(x, tmp_list[:3])
         return None, 0
 
+
 def img_to_tag(tag_img):
     """
     识别图片tag_img中的tag，若识别失败则返回False
     """
-    tag = mat_tostring(ocr.ocr(tag_img))
+    tag = ocr.ocr_for_single_line(tag_img)['text']
     #只保留中文字符
     tag = re.sub(r'[^\u4e00-\u9fa5]', '', tag)
     if tag in tag_dict:    #识别成功，直接返回tag
         return tag
     else:                  #识别失败，返回搜索结果
-        tag_fix, score = search_in_list(tag_dict, '术师于员', 100)
+        tag_fix, score = search_in_list(tag_dict, tag, 100)
         if score > 100:
             return tag_fix
         else:
@@ -190,8 +191,9 @@ def recognize_tag(screenshot):
         tag_to_index = dict(zip(tag_list, range(5)))
         return tag_list, tags_choosen, [tag_to_index[tag] for tag in tags_choosen]
 
-def mat_tostring(mat):
-    return ''.join(list(chain.from_iterable(mat)))
+def mat_tostring(res):
+#     return ''.join(list(chain.from_iterable(mat)))
+    return ''.join([x['text'] for x in res])
 
 def recognize_name(screenshot):
     """
@@ -213,9 +215,10 @@ def load_image(filename):
         raise NameError
 
 def check_ticket(screenshot):
-    ocr.set_cand_alphabet(cand_alphabet=NUMBERS)
-    item = mat_tostring(ocr.ocr_for_single_line(254 - screenshot[int(496*factor):int(513*factor), int(385*factor):int(440*factor)]))
-    ocr.set_cand_alphabet(cand_alphabet=None)
+#     ocr.set_cand_alphabet(cand_alphabet=NUMBERS)
+#     item = mat_tostring(ocr.ocr(254 - screenshot[int(496*factor):int(513*factor), int(385*factor):int(440*factor)]))
+#     ocr.set_cand_alphabet(cand_alphabet=None)
+    item = ocr.ocr_for_single_line(254 - screenshot[int(496*factor):int(513*factor), int(385*factor):int(440*factor)])['text']
     item = re.sub(r'[^0-9]', '', item)[:-1]
     print('剩余公招许可：%s' % item)
     if (item == '0'):
@@ -232,7 +235,7 @@ def read_prompt(screenshot):
 def gongzhao(num, start=0):
     pos_dict = {
         '新建': (243, 217),
-        '增加时长':(340, 110),
+        '增加时长':(340, 225),
         'tag': ((338, 290), (464, 290), (587, 290), (338, 341), (464, 341)),
         '招募': (733, 436),
         '加急': (353, 287),
@@ -242,27 +245,21 @@ def gongzhao(num, start=0):
     }
     def click(pos, sleep=0.5):
         command = 'adb -s %s shell input tap %d %d' % (device_name, int(pos[0] * factor), int(pos[1] * factor))
-    #     print(command)
         os.system(command)
         time.sleep(sleep)
-    # 提前录制点击增加时长按钮的操作，保存在/sdcard/record1，可提高adb点击速度
-    def click_incre():
-        for i in range(8):
-            os.popen('adb -s %s shell dd if=/sdcard/record1 of=/dev/input/event4' % device_name).read()
-    def screenshot(filename):
+    def take_screenshot(filename):
         os.popen('adb -s %s shell screencap -p /sdcard/01.png' % device_name).read()
         os.popen('adb -s %s pull /sdcard/01.png screenshots/%s' % (device_name, filename)).read()
 
     for k in range(start, start + num):
         print('\n本次第%d抽，累计第%d抽' % (k-start+1, k))
         click(pos_dict['新建'], 1)
-        screenshot('tag_%d.png' % k)
+        take_screenshot('tag_%d.png' % k)
         #检测公招券道具数量
-        check_ticket(load_image('tag_%d.png' % k))
-#         click_incre()
-        for i in range(8):
-            click(pos_dict['增加时长'], 0)
-        tag_list, tags_choosen, click_pos = recognize_tag(load_image('tag_%d.png' % k))
+        img = load_image('tag_%d.png' % k)
+        check_ticket(img)
+        click(pos_dict['增加时长'], 0)
+        tag_list, tags_choosen, click_pos = recognize_tag(img)
         print('\t可选tag为：\t' + ', '.join(tag_list))
         if ('高级资深干员' in tag_list):
             force_or_exit('出现高级资深干员，请人工选择，退出...')
@@ -270,22 +267,22 @@ def gongzhao(num, start=0):
         for i in click_pos:
             click(pos_dict['tag'][i], 0.1)
         click(pos_dict['招募'], 2)
-        screenshot('tmp.png')
+        take_screenshot('tmp.png')
         read_prompt(load_image('tmp.png'))
         click(pos_dict['加急'], 1.5)
-        screenshot('tmp.png')
+        take_screenshot('tmp.png')
         read_prompt(load_image('tmp.png'))
         click(pos_dict['确认'], 2)
         click(pos_dict['聘用'], 1)
         click(pos_dict['skip'], 3)
-        screenshot('result_%d.png' % k)
+        take_screenshot('result_%d.png' % k)
         name, score = recognize_name(load_image('result_%d.png' % k))
         if name in op_dict:
             print('\t获得干员为：\t %d★%s' % (op_dict[name]['星级'], name))
         else:
             print('\t获得干员为：\t 未识别')
         with open('history.log', 'a+', encoding='utf-8') as file:
-            file.write('%d; %s; %s; %s; %d\n' % (k, str(tag_list), str(tags_choosen), name, op_dict[name]['星级']))
+            file.write('%d; %s; %s; %s; %d\n' % (k, str(tag_list), str(tags_choosen), name, op_dict[name]['星级'] if name in op_dict else -1))
         click(pos_dict['skip'])
         click(pos_dict['skip'])
     print('\n已完成%d次公招，退出...' % num)
