@@ -1,4 +1,4 @@
-name: Ark
+name: ArkAutoHR
 channels:
   - defaults
 dependencies:

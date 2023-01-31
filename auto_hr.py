@@ -72,7 +72,7 @@ img = imread('screenshots/resolution_test.png')
 os.remove('screenshots/resolution_test.png')
 factor = img.shape[1] / 960
 
-ocr = CnOcr()
+ocr = CnOcr(det_model_name='naive_det')
 
 with open('干员信息.json', 'r', encoding='utf-8') as file:
     op_dict = json.loads(file.read())
